@@ -1,0 +1,97 @@
+name: CI
+
+# What this workflow asserts about openkal-uefi-platform: on each host its runner states, mcpp builds
+# examples/hello for x86_64-uefi (a PE32+ EFI application above openkal-uefi), and `mcpp run` boots it
+# under QEMU's q35 with the edk2 firmware through dirun, the three installed by the run itself, and
+# returns its status (42).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MCPP_VERSION: 2026.11.12.1
+  XLINGS_VERSION: v2026.10.26.1
+  XLINGS_NON_INTERACTIVE: '1'
+
+jobs:
+  uefi:
+    name: x86_64-uefi (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xlings (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+            https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+            | bash -s "$XLINGS_VERSION"
+          echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+      - name: Install xlings (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://d2learn.org/xlings-install.ps1.txt | iex
+          "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install mcpp
+        run: |
+          set -euo pipefail
+          xlings config --mirror GLOBAL 2>/dev/null || true
+          for attempt in 1 2 3 4 5; do
+            xlings update > /dev/null 2>&1 || true
+            if xlings install "xim:mcpp@$MCPP_VERSION" -y -g; then break; fi
+            [ "$attempt" = 5 ] && { echo "::error::mcpp@$MCPP_VERSION could not be installed"; exit 1; }
+            sleep 30
+          done
+          mcpp self config --mirror GLOBAL
+          mcpp --version
+
+      - name: Enable KVM (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+            sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          fi
+
+      - name: A UEFI application, built and run
+        working-directory: examples/hello
+        run: |
+          set -euo pipefail
+          mcpp build --target x86_64-uefi
+          app=$(find target/x86_64-uefi -path '*bin/hello.efi' -type f | head -1)
+          [ -n "$app" ] || { echo "::error::no hello.efi"; exit 1; }
+          python3 - "$app" <<'PY'
+          import struct, sys
+          data = open(sys.argv[1], "rb").read()
+          pe = struct.unpack_from("<I", data, 0x3c)[0]
+          assert data[pe:pe + 4] == b"PE\0\0", "not a PE image"
+          machine = struct.unpack_from("<H", data, pe + 4)[0]
+          magic, = struct.unpack_from("<H", data, pe + 24)
+          subsystem, = struct.unpack_from("<H", data, pe + 24 + 68)
+          assert (machine, magic, subsystem) == (0x8664, 0x20b, 10), (hex(machine), hex(magic), subsystem)
+          print("PE32+ x86-64, subsystem EFI application")
+          PY
+          set +e
+          mcpp run --target x86_64-uefi | tee run.log
+          status=${PIPESTATUS[0]}
+          set -e
+          grep -q "hello from openkal over UEFI" run.log && grep -q "all held" run.log \
+            || { echo "::error::the application's output"; exit 1; }
+          [ "$status" = 42 ] || { echo "::error::the status is $status, not 42"; exit 1; }

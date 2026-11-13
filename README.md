@@ -20,7 +20,7 @@ mcpp run   --target x86_64-uefi     # booted by dirun under QEMU; the status com
 | freestanding, no red zone, UCS-2 `wchar_t`, entry `efi_main` | `[platform.build]` |
 | the block-memory functions a compiler calls (no C library) | `runtime/mem.S` |
 | the board's exit: the status to QEMU's debug-exit port, only under QEMU | `board/qemu-exit.S` |
-| the runner: dirun boots the application as `EFI/BOOT/BOOTX64.EFI` | `[platform.runner]` |
+| the runner: dirun boots the application as `EFI/BOOT/BOOTX64.EFI` under qemu-x86's emulator with ovmf's code image, the three installed by the first run on Linux, macOS and Windows | `[platform.runner]` |
 
 The engine knows no UEFI: everything above is this package's (design P15).
 
