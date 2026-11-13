@@ -1,0 +1,13 @@
+[package]
+name    = "hello"
+version = "0.1.0"
+
+[targets.hello]
+kind = "bin"
+main = "src/main.cpp"
+
+[dependencies]
+openkal = "^0.25.0"
+
+[target.x86_64-uefi]
+platform = { path = "../.." }

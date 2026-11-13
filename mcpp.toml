@@ -35,7 +35,7 @@ cmd = ["dirun", "--payload", "{}", "--arch", "x86_64",
        "--place", "EFI/BOOT/BOOTX64.EFI", "--status", "debug-exit",
        "--after", "BdsDxe: starting [^\\n]*\\n"]
 hosts    = ["linux-x86_64", "linux-aarch64", "macos-aarch64", "windows-x86_64"]
-requires = ["xim:dirun@0.3.0", "xim:qemu-x86@9.2.4-1", "xim:ovmf@9.2.4"]
+requires = ["xim:dirun@0.3.1", "xim:qemu-x86@9.2.4-1", "xim:ovmf@9.2.4"]
 
 [[platform.define]]
 triple        = "x86_64-uefi"
